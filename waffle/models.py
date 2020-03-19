@@ -33,6 +33,12 @@ class BaseModel(models.Model):
         return keyfmt(get_setting(cls.SINGLE_CACHE_KEY), name)
 
     @classmethod
+    def _db_create(cls,name):
+
+        # Do not insert model into db by default (to be backward compatible).
+        return None
+
+    @classmethod
     def get(cls, name):
         cache = get_cache()
         cache_key = cls._cache_key(name)
@@ -45,9 +51,11 @@ class BaseModel(models.Model):
         try:
             obj = cls.get_from_db(name)
         except cls.DoesNotExist:
-            cache.add(cache_key, CACHE_EMPTY)
-            return cls(name=name)
-
+            obj = cls._db_create(name)
+            if obj is None:
+                cache.add(cache_key, CACHE_EMPTY)
+                return cls(name=name)
+            
         cache.add(cache_key, obj)
         return obj
 
@@ -237,19 +245,22 @@ class AbstractBaseFlag(BaseModel):
                     request.LANGUAGE_CODE in languages):
                 return True
         return None
+    
+    @classmethod
+    def _db_create(cls, name):
+        if not get_setting('CREATE_MISSING_FLAGS'):
+            return None
+
+        return get_waffle_flag_model().objects.create(
+            name=name, everyone=get_setting('FLAG_DEFAULT'))
 
     def is_active(self, request):
         if not self.pk:
             log_level = get_setting('LOG_MISSING_FLAGS')
             if log_level:
                 logger.log(log_level, 'Flag %s not found', self.name)
-            if get_setting('CREATE_MISSING_FLAGS'):
-                get_waffle_flag_model().objects.get_or_create(
-                    name=self.name,
-                    defaults={
-                        'everyone': get_setting('FLAG_DEFAULT')
-                    }
-                )
+            
+            self._db_create(self.name)
 
             return get_setting('FLAG_DEFAULT')
 
