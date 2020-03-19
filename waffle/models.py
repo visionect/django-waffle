@@ -33,7 +33,7 @@ class BaseModel(models.Model):
         return keyfmt(get_setting(cls.SINGLE_CACHE_KEY), name)
 
     @classmethod
-    def _db_create(cls,name):
+    def _db_create(cls, name):
 
         # Do not insert model into db by default (to be backward compatible).
         return None
@@ -48,14 +48,11 @@ class BaseModel(models.Model):
         if cached:
             return cached
 
-        try:
-            obj = cls.get_from_db(name)
-        except cls.DoesNotExist:
-            obj = cls._db_create(name)
-            if obj is None:
-                cache.add(cache_key, CACHE_EMPTY)
-                return cls(name=name)
-            
+        obj,created  = cls.get_or_create_from_db(name)
+        if created and obj is None:
+            cache.add(cache_key, CACHE_EMPTY)
+            return cls(name=name)
+
         cache.add(cache_key, obj)
         return obj
 
@@ -65,6 +62,13 @@ class BaseModel(models.Model):
         if get_setting('READ_FROM_WRITE_DB'):
             objects = objects.using(router.db_for_write(cls))
         return objects.get(name=name)
+
+    @classmethod
+    def get_or_create_from_db(cls, name):
+        try:
+            return cls.get_from_db(name), False
+        except cls.DoesNotExist:
+            return cls._db_create(name), True
 
     @classmethod
     def get_all(cls):
@@ -175,7 +179,8 @@ class AbstractBaseFlag(BaseModel):
     languages = models.TextField(
         blank=True,
         default='',
-        help_text=_('Activate this flag for users with one of these languages (comma-separated list)'),
+        help_text=_(
+            'Activate this flag for users with one of these languages (comma-separated list)'),
         verbose_name=_('Languages'),
     )
     rollout = models.BooleanField(
@@ -245,9 +250,13 @@ class AbstractBaseFlag(BaseModel):
                     request.LANGUAGE_CODE in languages):
                 return True
         return None
-    
+
     @classmethod
     def _db_create(cls, name):
+        log_level = get_setting('LOG_MISSING_FLAGS')
+        if log_level:
+            logger.log(log_level, 'Flag %s not found', name)
+
         if not get_setting('CREATE_MISSING_FLAGS'):
             return None
 
@@ -256,10 +265,6 @@ class AbstractBaseFlag(BaseModel):
 
     def is_active(self, request):
         if not self.pk:
-            log_level = get_setting('LOG_MISSING_FLAGS')
-            if log_level:
-                logger.log(log_level, 'Flag %s not found', self.name)
-            
             self._db_create(self.name)
 
             return get_setting('FLAG_DEFAULT')
@@ -385,7 +390,8 @@ class AbstractUserFlag(AbstractBaseFlag):
         if hasattr(user, 'groups'):
             group_ids = self._get_group_ids()
             if group_ids:
-                user_groups = set(user.groups.all().values_list('pk', flat=True))
+                user_groups = set(
+                    user.groups.all().values_list('pk', flat=True))
                 if group_ids.intersection(user_groups):
                     return True
 
