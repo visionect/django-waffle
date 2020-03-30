@@ -387,7 +387,7 @@ class AbstractUserFlag(AbstractBaseFlag):
         if hasattr(user, 'pk') and user.pk in user_ids:
             return True
 
-        if hasattr(user, 'groups'):
+        if not get_setting("FLAG_GROUPS_DISABLE") and hasattr(user, 'groups'):
             group_ids = self._get_group_ids()
             if group_ids:
                 user_groups = set(
