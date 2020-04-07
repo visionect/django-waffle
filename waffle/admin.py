@@ -66,10 +66,14 @@ class InformativeManyToManyRawIdWidget(ManyToManyRawIdWidget):
     Will display the names of the users in a parenthesised list after the
     input field. This widget works with all models that have a "name" field.
     """
+
+    max_displayed = 10
+
     def label_and_url_for_value(self, values):
         names = []
+
         key = self.rel.get_related_field().name
-        for value in values:
+        for value in values[:self.max_displayed]:
             try:
                 name = self.rel.model._default_manager \
                     .using(self.db) \
@@ -77,7 +81,14 @@ class InformativeManyToManyRawIdWidget(ManyToManyRawIdWidget):
                 names.append(escape(str(name)))
             except self.rel.model.DoesNotExist:
                 names.append('<missing>')
-        return "(" + ", ".join(names) + ")", ""
+
+        count_str = ""
+        total = len(values)
+        displayed = len(names)
+        if total > displayed:
+            count_str = f" and {(total-displayed)} more ..."
+
+        return f"Total: {total} (" + ", ".join(names) + f"){count_str}", ""
 
 
 class FlagAdmin(BaseAdmin):
